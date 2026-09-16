@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import seaborn as sns
 import soccerdata as sd
 import ScraperFC as sfc
@@ -10,675 +11,667 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.cluster import KMeans
 from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
 import os
+import plotly.express as px
 
-st.set_page_config(page_title="EDA – Football Player Analysis", page_icon="⚽", layout="wide")
-
-st.title("⚽ EDA y análisis de similitud de jugadores")
-st.markdown("""
-Esta aplicación reproduce el análisis desarrollado en el Jupyter original. La lógica del análisis se mantiene: extracción de datos de FBref, unificación de datasets, selección de variables, tratamiento de valores nulos, estandarización, PCA y comparación de jugadores mediante similitud coseno y distancia euclídea.
-
-La aplicación añade únicamente una capa de visualización y explicación para que el análisis pueda consultarse de forma interactiva.
-""")
-
-with st.sidebar:
-    st.header("Navegación")
-    st.info("Los parámetros del análisis se mantienen tal como están definidos en el Jupyter original.")
-    st.markdown("**Fuente:** FBref mediante `soccerdata` y datos de Transfermarkt mediante `ScraperFC`.")
-    st.markdown("**Temporada principal:** Premier League 2025/26")
-
-with st.expander("Código original del análisis", expanded=False):
-    st.markdown("Las celdas de análisis se han trasladado al script sin importar ni ejecutar el notebook como módulo.")
-
-st.header("1. Obtención de los datos")
-st.write("Primero se cargan el calendario, las estadísticas de los equipos y las estadísticas de jugadores de la Premier League.")
-
-# ===== CELDA 0 =====
-import os
-import pandas as pd
-import numpy as np
-import seaborn as sns
-#import LanusStats  as ls
-import soccerdata as sd
-import ScraperFC as sfc
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
-import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.cluster import KMeans
-from sklearn.metrics.pairwise import cosine_similarity
+@st.cache_data(show_spinner="Cargando y procesando datos de FBref...")
+def cargar_y_procesar_datos():
+    import os
+    import pandas as pd
+    import numpy as np
+    import seaborn as sns
+    #import LanusStats  as ls
+    import soccerdata as sd
+    import ScraperFC as sfc
+    from sklearn.decomposition import PCA
+    from sklearn.preprocessing import StandardScaler, MinMaxScaler
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from sklearn.cluster import KMeans
+    from sklearn.metrics.pairwise import cosine_similarity
 
 
+    #ligas = ["ENG-Premier League", ]
+    fbref = sd.FBref('Big 5 European Leagues Combined', '2026')
 
-fbref = sd.FBref('ENG-Premier League', '2024')
+    games = fbref.read_schedule()
+    team_season_stats = fbref.read_team_season_stats(stat_type="standard")
+    player_season_stats = fbref.read_player_season_stats(stat_type="standard")
+    print(player_season_stats.head())
 
-games = fbref.read_schedule()
-team_season_stats = fbref.read_team_season_stats(stat_type="standard")
-player_season_stats = fbref.read_player_season_stats(stat_type="standard")
-print(player_season_stats.head())
+    print(player_season_stats.columns)
 
-st.subheader("Primer vistazo a las estadísticas de jugadores")
-st.dataframe(player_season_stats.head(), use_container_width=True)
+    player_season_stats.head()
 
-print(player_season_stats.columns)
+    player_season_stats_shooting = fbref.read_player_season_stats(stat_type="shooting")
+    player_season_stats_playing_time = fbref.read_player_season_stats(stat_type="playing_time")
+    player_season_stats_keeper = fbref.read_player_season_stats(stat_type="keeper")
+    player_season_stats_misc = fbref.read_player_season_stats(stat_type="misc")
 
-player_season_stats.head()
-
-st.header("2. Estadísticas complementarias y unificación")
-st.write("Además de las estadísticas estándar, se incorporan shooting, playing time, goalkeeper y miscellaneous para construir una única tabla de análisis.")
-
-player_season_stats_shooting = fbref.read_player_season_stats(stat_type="shooting")
-player_season_stats_playing_time = fbref.read_player_season_stats(stat_type="playing_time")
-player_season_stats_keeper = fbref.read_player_season_stats(stat_type="keeper")
-player_season_stats_misc = fbref.read_player_season_stats(stat_type="misc")
-
-print(player_season_stats.columns, player_season_stats_shooting.columns, player_season_stats_playing_time.columns, player_season_stats_keeper.columns, player_season_stats_misc.columns)
+    print(player_season_stats.columns, player_season_stats_shooting.columns, player_season_stats_playing_time.columns, player_season_stats_keeper.columns, player_season_stats_misc.columns)
 
 
 
+    print(f"Indices: {player_season_stats.index}")
+    print(f"Columnas {player_season_stats.columns}")
 
-print(player_season_stats.columns, player_season_stats_shooting.columns, player_season_stats_playing_time.columns, player_season_stats_keeper.columns, player_season_stats_misc.columns)
+    claves = ["player", "nation", "born", "pos", "age"]
 
+    dfs = [
+        player_season_stats,
+        player_season_stats_shooting,
+        player_season_stats_playing_time,
+        player_season_stats_keeper,
+        player_season_stats_misc
+    ]
 
-print(f"Indices: {player_season_stats.index}")
-print(f"Columnas {player_season_stats.columns}")
+    for df_temp in dfs:
+        if "player" not in df_temp.columns:
+            df_temp.reset_index(inplace=True)
 
-claves = ["player", "nation", "born", "pos", "age"]
+    for df_temp in dfs:
+        if isinstance(df_temp.columns, pd.MultiIndex):
+            df_temp.columns = [
+                f"{col[0]}_{col[1]}" if col[1] != "" else col[0]
+                for col in df_temp.columns
+            ]
 
-dfs = [
-    player_season_stats,
-    player_season_stats_shooting,
-    player_season_stats_playing_time,
-    player_season_stats_keeper,
-    player_season_stats_misc
-]
+    columnas_repetidas = ["team", "season", "league"]
 
-for df_temp in dfs:
-    if "player" not in df_temp.columns:
-        df_temp.reset_index(inplace=True)
-
-for df_temp in dfs:
-    if isinstance(df_temp.columns, pd.MultiIndex):
-        df_temp.columns = [
-            f"{col[0]}_{col[1]}" if col[1] != "" else col[0]
-            for col in df_temp.columns
-        ]
-
-columnas_repetidas = ["team", "season", "league"]
-
-for df_temp in dfs[1:]:
-    df_temp.drop(
-        columns=[col for col in columnas_repetidas if col in df_temp.columns],
-        inplace=True
-    )
+    for df_temp in dfs[1:]:
+        df_temp.drop(
+            columns=[col for col in columnas_repetidas if col in df_temp.columns],
+            inplace=True
+        )
     
-df = player_season_stats.merge(
-    player_season_stats_shooting,
-    on=claves,
-    how="left"
-)
-
-df = df.merge(
-    player_season_stats_playing_time,
-    on=claves,
-    how="left"
-)
-
-df = df.merge(
-    player_season_stats_keeper,
-    on=claves,
-    how="left"
-)
-
-df = df.merge(
-    player_season_stats_misc,
-    on=claves,
-    how="left"
-)
-
-print(df.info())
-print(df[(df["team"]=="Manchester City")])
-
-st.success(f"Dataset unificado: {df.shape[0]} filas y {df.shape[1]} columnas.")
-st.dataframe(df.head(), use_container_width=True)
-
-fbref2 = sd.FBref('FRA-Ligue 1', '2024')
-
-games2 = fbref2.read_schedule()
-team_season_stats2 = fbref2.read_team_season_stats(stat_type="standard")
-player_season_stats2 = fbref2.read_player_season_stats(stat_type="standard")
-print(player_season_stats2.head())
-
-st.subheader("Primer vistazo a las estadísticas de jugadores - Serie A")
-st.dataframe(player_season_stats2.head(), use_container_width=True)
-
-print(player_season_stats2.columns)
-
-player_season_stats2.head()
-
-st.header("2. Estadísticas complementarias y unificación")
-st.write("Además de las estadísticas estándar, se incorporan shooting, playing time, goalkeeper y miscellaneous para construir una única tabla de análisis.")
-
-player_season_stats_shooting2 = fbref2.read_player_season_stats(stat_type="shooting")
-player_season_stats_playing_time2 = fbref2.read_player_season_stats(stat_type="playing_time")
-player_season_stats_keeper2 = fbref2.read_player_season_stats(stat_type="keeper")
-player_season_stats_misc2 = fbref2.read_player_season_stats(stat_type="misc")
-
-
-dfs2 = [
-    player_season_stats2,
-    player_season_stats_shooting2,
-    player_season_stats_playing_time2,
-    player_season_stats_keeper2,
-    player_season_stats_misc2
-]
-
-
-for df_temp in dfs2:
-    if "player" not in df_temp.columns:
-        df_temp.reset_index(inplace=True)
-
-for df_temp in dfs2:
-    if isinstance(df_temp.columns, pd.MultiIndex):
-        df_temp.columns = [
-            f"{col[0]}_{col[1]}" if col[1] != "" else col[0]
-            for col in df_temp.columns
-        ]
-
-columnas_repetidas = ["team", "season", "league"]
-
-for df_temp in dfs2[1:]:
-    df_temp.drop(
-        columns=[col for col in columnas_repetidas if col in df_temp.columns],
-        inplace=True
+    df = player_season_stats.merge(
+        player_season_stats_shooting,
+        on=claves,
+        how="left"
     )
 
+    df = df.merge(
+        player_season_stats_playing_time,
+        on=claves,
+        how="left"
+    )
 
-df2 = player_season_stats2.merge(
-    player_season_stats_shooting2,
-    on=claves,
-    how="left"
-)
+    df = df.merge(
+        player_season_stats_keeper,
+        on=claves,
+        how="left"
+    )
 
-df2 = df2.merge(
-    player_season_stats_playing_time2,
-    on=claves,
-    how="left"
-)
+    df = df.merge(
+        player_season_stats_misc,
+        on=claves,
+        how="left"
+    )
 
-df2 = df2.merge(
-    player_season_stats_keeper2,
-    on=claves,
-    how="left"
-)
+    print(df.info())
 
-df2 = df2.merge(
-    player_season_stats_misc2,
-    on=claves,
-    how="left"
-)
-
-print(df2.info())
-
-st.success(f"Dataset Serie A unificado: {df2.shape[0]} filas y {df2.shape[1]} columnas.")
-st.dataframe(df2.head(), use_container_width=True)
+ 
+    df = df.drop(columns=["league", "born"])
 
 
-df = df.drop(columns=["league", "nation", "age", "born"])
-
-df = pd.concat(
-    [df, df2],
-    ignore_index=True
-)
-df
-
-st.success(f"Dataset final: {df.shape[0]} filas y {df.shape[1]} columnas.")
-
-
-
-st.header("3. Reducción de dimensionalidad")
-st.markdown("Momento de intentar reducir la dimensionalidad, dando prioridad a las variables más relevantes.")
-st.markdown("**Variables consideradas más relevantes, eliminando redundancias a la vez, acabamos con 22 variables.**")
-
-variables_pca = [
-    "Per 90 Minutes_Gls",
-    "Per 90 Minutes_Ast",
-    "Per 90 Minutes_G+A",
-    "Per 90 Minutes_G-PK",
-    "Per 90 Minutes_G+A-PK",
+    variables_pca = [
+        "Per 90 Minutes_Gls",
+        "Per 90 Minutes_Ast",
+        "Per 90 Minutes_G+A",
+        "Per 90 Minutes_G-PK",
+        "Per 90 Minutes_G+A-PK",
     
-    "Standard_Sh/90",
-    "Standard_SoT/90",
-    "Standard_SoT%",
-    "Standard_G/Sh",
-    "Standard_G/SoT",
+        "Standard_Sh/90",
+        "Standard_SoT/90",
+        "Standard_SoT%",
+        "Standard_G/Sh",
+        "Standard_G/SoT",
     
-    "Playing Time_Min%",
+        "Playing Time_Min%",
     
-    "Team Success_PPM",
-    "Team Success_+/-90",
-    "Team Success_On-Off",
+        "Team Success_PPM",
+        "Team Success_+/-90",
+        "Team Success_On-Off",
     
-    "Performance_Fls",
-    "Performance_Fld",
-    "Performance_Off",
-    "Performance_Crs",
-    "Performance_Int",
-    "Performance_TklW",
+        "Performance_Fls",
+        "Performance_Fld",
+        "Performance_Off",
+        "Performance_Crs",
+        "Performance_Int",
+        "Performance_TklW",
     
-    "Performance_CrdY_y",
-    "Performance_CrdR_y"
-]
+        "Performance_CrdY_y",
+        "Performance_CrdR_y"
+    ]
 
-df_sin_porteros = df[df["pos"] != "GK"].copy()
-
-
-FILTRAR_POR_POSICION = False  
-POSICION_FILTRO = "FW"        
-
-if FILTRAR_POR_POSICION:
-    df_sin_porteros = df_sin_porteros[
-        df_sin_porteros["pos"].str.contains(POSICION_FILTRO, na=False)
-    ].copy()
-
-df_pca_data = df_sin_porteros[variables_pca].copy()
-
-st.write(f"Jugadores tras excluir porteros y aplicar el filtro definido: {df_pca_data.shape[0]}")
-
-df_num = df_pca_data.select_dtypes(include=['number'])
-df_num.index = df_sin_porteros['player']
+    df_sin_porteros = df[df["pos"] != "GK"].copy()
 
 
-UMBRAL_NAN = 10
+    FILTRAR_POR_POSICION = False  
+    POSICION_FILTRO = "FW"        
 
-na_counts = df_num.isna().sum()
-cols_pocos_na = na_counts[(na_counts > 0) & (na_counts < UMBRAL_NAN)].index.tolist()
-cols_muchos_na = na_counts[na_counts >= UMBRAL_NAN].index.tolist()
+    if FILTRAR_POR_POSICION:
+        df_sin_porteros = df_sin_porteros[
+            df_sin_porteros["pos"].str.contains(POSICION_FILTRO, na=False)
+        ].copy()
 
-print(f"Columnas con <{UMBRAL_NAN} NaN (se eliminan jugadores): {cols_pocos_na}")
-print(f"Columnas con >={UMBRAL_NAN} NaN (se imputa la moda): {cols_muchos_na}")
-
-df_num = df_num.dropna(subset=cols_pocos_na)
+    df_pca_data = df_sin_porteros[variables_pca].copy()
 
 
-for col in cols_muchos_na:
-    moda = df_num[col].mode(dropna=True)[0]
-    df_num[col] = df_num[col].fillna(moda)
+    df_num = df_pca_data.select_dtypes(include=['number'])
+    df_num.index = df_sin_porteros['player']
 
-print(f"Jugadores restantes tras el tratamiento de nulos: {df_num.shape[0]}")
-df_num = df_num[~df_num.index.duplicated(keep="first")]
 
-st.write(f"Matriz numérica para PCA: {df_num.shape[0]} jugadores × {df_num.shape[1]} variables.")
+    UMBRAL_NAN = 10
 
-scaler = StandardScaler()
-df_scaled = scaler.fit_transform(df_num)
+    na_counts = df_num.isna().sum()
+    cols_pocos_na = na_counts[(na_counts > 0) & (na_counts < UMBRAL_NAN)].index.tolist()
+    cols_muchos_na = na_counts[na_counts >= UMBRAL_NAN].index.tolist()
 
-pca = PCA(n_components=10)
-df_pca= pca.fit_transform(df_scaled)
+    print(f"Columnas con <{UMBRAL_NAN} NaN (se eliminan jugadores): {cols_pocos_na}")
+    print(f"Columnas con >={UMBRAL_NAN} NaN (se imputa la moda): {cols_muchos_na}")
 
-print(pca.n_components_)
+    df_num = df_num.dropna(subset=cols_pocos_na)
 
-st.metric("Componentes PCA", pca.n_components_)
 
-pesos = pd.DataFrame(
-    pca.components_.T, 
-    columns=[f"PC{i+1}" for i in range(pca.components_.shape[0])],
-    index= df_num.columns
+    for col in cols_muchos_na:
+        moda = df_num[col].mode(dropna=True)[0]
+        df_num[col] = df_num[col].fillna(moda)
+
+    print(f"Jugadores restantes tras el tratamiento de nulos: {df_num.shape[0]}")
+    df_num = df_num[~df_num.index.duplicated(keep="first")]
+
+
+    scaler = StandardScaler()
+    df_scaled = scaler.fit_transform(df_num)
+
+    pca = PCA(n_components=10)
+    df_pca= pca.fit_transform(df_scaled)
+
+    print(pca.n_components_)
+
+
+    pesos = pd.DataFrame(
+        pca.components_.T, 
+        columns=[f"PC{i+1}" for i in range(pca.components_.shape[0])],
+        index= df_num.columns
+    )
+    print(pesos)
+
+
+    varianza = pca.explained_variance_ratio_
+    acumulada = np.cumsum(varianza)
+
+
+    #clubelo = sd.ClubElo()
+
+
+
+    #current_elo = clubelo.read_by_date('2026-06-01')
+
+    #tm = sfc.Transfermarkt()
+
+    #import ScraperFC.transfermarkt as transfermarkt
+    import builtins
+    import re
+
+    float_original = builtins.float
+
+
+    def float_patched(value):
+        if isinstance(value, str) and "ft" in value and "in" in value:
+            match = re.search(
+                r"(\d+)\s*ft\s*(\d+)?\s*in",
+                value
+            )
+
+            if match:
+                pies = float_original(match.group(1))
+                pulgadas = float_original(match.group(2) or 0)
+
+                return pies * 0.3048 + pulgadas * 0.0254
+
+        return float_original(value)
+
+
+    builtins.float = float_patched
+
+    # valor_jugadores = tm.scrape_players(
+    #     "25/26",
+    #     "England Premier League"
+    # )
+
+    # print(valor_jugadores.head())
+
+    builtins.float = float_original
+
+
+    df_pca = pca.fit_transform(df_scaled)
+    df_pca = pd.DataFrame(
+        df_pca, 
+        index =  df_num.index,
+        columns=[f"PC{i+1}" for i in range(df_pca.shape[1])]
+    )
+
+    componentes = df_pca.columns.tolist()
+
+    K_RANGO = range(2, 11)
+    inercias = []
+
+    for k in K_RANGO:
+        kmeans_tmp = KMeans(n_clusters=k, random_state=42, n_init=10)
+        kmeans_tmp.fit(df_pca[componentes])
+        inercias.append(kmeans_tmp.inertia_)
+
+    diferencias = np.diff(inercias)
+    diferencias2 = np.diff(diferencias)
+    N_CLUSTERS = list(K_RANGO)[int(np.argmax(diferencias2)) + 1] if len(diferencias2) > 0 else 3
+
+    print(f"Inercias por k: {inercias}")
+    print(f"Número óptimo de clusters (codo): {N_CLUSTERS}")
+
+    kmeans = KMeans(n_clusters=N_CLUSTERS, random_state=42, n_init=10)
+    clusters_kmeans = pd.Series(
+        kmeans.fit_predict(df_pca[componentes]),
+        index=df_pca.index,
+        name="Cluster",
+    )
+
+    print(clusters_kmeans.value_counts())
+
+    return df_sin_porteros, df_num, df_pca, componentes, K_RANGO, inercias, N_CLUSTERS, clusters_kmeans
+
+
+df_sin_porteros, df_num, df_pca, componentes, K_RANGO, inercias, N_CLUSTERS, clusters_kmeans = cargar_y_procesar_datos()
+
+
+
+st.set_page_config(
+    page_title="Radar de Jugadores — Similitud & Comparador",
+    layout="wide",
 )
-print(pesos)
 
-st.subheader("Pesos (loadings) de las variables")
-st.dataframe(pesos, use_container_width=True)
+# ---- Estilos ----
+st.markdown(
+    """
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap');
 
+    :root {
+        --bg: #0a100d;
+        --panel: #121a16;
+        --panel-alt: #16201b;
+        --border: #263029;
+        --text: #edf1ee;
+        --text-muted: #94a69b;
+        --accent: #d9a441;
+        --accent-b: #6f93b3;
+    }
 
-varianza = pca.explained_variance_ratio_
-acumulada = np.cumsum(varianza)
+    .stApp {
+        background-color: var(--bg);
+        color: var(--text);
+    }
+    .stApp, p, span, label, div {
+        font-family: 'Inter', sans-serif;
+    }
+    h1, h2, h3, h4 {
+        font-family: 'Oswald', sans-serif;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        color: var(--text);
+    }
 
-plt.figure(figsize=(10, 6))
+    /* Cabecera */
+    .hero {
+        padding: 2.2rem 2.4rem;
+        border-radius: 4px;
+        background: linear-gradient(180deg, var(--panel-alt) 0%, var(--bg) 100%);
+        border: 1px solid var(--border);
+        border-left: 3px solid var(--accent);
+        margin-bottom: 1.6rem;
+    }
+    .hero-kicker {
+        color: var(--accent);
+        font-family: 'Inter', sans-serif;
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+    }
+    .hero h1 {
+        font-size: 2.5rem;
+        margin: 0 0 0.5rem 0;
+        line-height: 1.05;
+    }
+    .hero p {
+        font-size: 1.02rem;
+        color: var(--text-muted);
+        max-width: 68ch;
+        line-height: 1.6;
+        margin: 0;
+    }
 
-plt.bar(
-    range(1, len(varianza) + 1),
-    varianza,
-    label="Varianza individual"
+    /* Subtítulos de sección */
+    h3 {
+        border-left: 3px solid var(--accent);
+        padding-left: 0.7rem;
+        margin-top: 2rem !important;
+        font-size: 1.25rem !important;
+    }
+
+    /* Fichas de jugador */
+    .ficha-jugador {
+        padding: 1.1rem 1.3rem;
+        border-radius: 4px;
+        background-color: var(--panel);
+        border: 1px solid var(--border);
+        text-align: left;
+    }
+    .ficha-jugador.ficha-a { border-top: 3px solid var(--accent); }
+    .ficha-jugador.ficha-b { border-top: 3px solid var(--accent-b); }
+    .ficha-jugador h4 {
+        margin: 0 0 0.3rem 0;
+        font-size: 1.2rem;
+    }
+    .ficha-jugador p {
+        color: var(--text-muted);
+        margin: 0;
+        font-size: 0.95rem;
+    }
+
+    /* Tablas y métricas */
+    div[data-testid="stDataFrame"], div[data-testid="stMetric"] {
+        border: 1px solid var(--border);
+        border-radius: 4px;
+    }
+    div[data-testid="stMetric"] {
+        background-color: var(--panel);
+        padding: 0.6rem 0.8rem;
+    }
+
+    /* Pestañas */
+    button[data-baseweb="tab"] {
+        font-family: 'Oswald', sans-serif;
+        font-size: 1.02rem;
+    }
+    div[data-baseweb="tab-highlight"] {
+        background-color: var(--accent) !important;
+    }
+
+    /* Cromado por defecto de Streamlit */
+    #MainMenu, footer {visibility: hidden;}
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
-plt.plot(
-    range(1, len(acumulada) + 1),
-    acumulada,
-    marker="o",
-    label="Varianza acumulada"
+st.markdown(
+    """
+    <div class="hero">
+    <div class="hero-kicker">Similitud de perfiles estadísticos · Big 5 European Leagues</div>
+    <h1>Radar de Jugadores</h1>
+    <p>
+    Cuando el Manchester City perdió a Kevin De Bruyne, su equipo de datos redujo
+    decenas de variables de rendimiento a un puñado de componentes y rastreó el
+    fútbol europeo buscando los perfiles estadísticamente más parecidos. Rayan Cherki
+    fue uno de los nombres que salió de ese análisis, y acabó siendo el fichaje.
+    Esta aplicación reproduce esa misma lógica — reducción de dimensionalidad,
+    clustering y similitud — sobre datos públicos de las cinco grandes ligas, para
+    responder una pregunta muy simple: dado un jugador, ¿quién juega parecido a él?
+    </p>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
-plt.axhline(
-    0.90,
-    linestyle="--",
-    label="90% de varianza"
+with st.expander("Sobre este proyecto y su metodología"):
+    st.markdown(
+        f"""
+        Cada jugador se describe con más de veinte métricas por 90 minutos: producción
+        ofensiva, participación defensiva, volumen y eficiencia de tiro, faltas, centros...
+        Como muchas de esas métricas están correlacionadas entre sí, se estandarizan y se
+        comprimen con un **Análisis de Componentes Principales (PCA)** en
+        **{len(componentes)} componentes**, cada uno resumiendo un patrón de juego
+        reconocible (producción ofensiva, participación defensiva, eficiencia de
+        finalización, creación de juego...).
+
+        Sobre esos componentes se entrena un modelo de **KMeans**, eligiendo el número
+        de clusters con el método del codo (**{N_CLUSTERS} clusters** para esta
+        temporada), y se calcula la **similitud coseno** entre jugadores para encontrar,
+        dado un nombre de referencia, quién tiene el perfil estadístico más parecido.
+
+        El proyecto está inspirado en el caso público del Manchester City y Kevin De
+        Bruyne, pero no usa ni reproduce ningún dato interno del club: toda la
+        información procede de fuentes públicas (FBref). La similitud es puramente
+        estadística — no sustituye el ojo de un scout ni incorpora todavía variables de
+        mercado (valor, contrato, cláusula), que quedan como siguiente paso natural del
+        proyecto.
+        """
+    )
+
+COLOR_PANEL = "#121a16"
+COLOR_BORDE = "#263029"
+COLOR_TEXTO = "#edf1ee"
+COLOR_TEXTO_SUAVE = "#94a69b"
+COLOR_ACENTO = "#d9a441"
+COLOR_ACENTO_B = "#6f93b3"
+
+CMAP_ACENTO = mcolors.LinearSegmentedColormap.from_list(
+    "acento_dorado", ["#3a2f1c", COLOR_ACENTO]
 )
 
-plt.xlabel("Componentes principales")
-plt.ylabel("Varianza explicada")
-plt.title("Scree Plot del PCA")
-plt.xticks(range(1, len(varianza) + 1))
-plt.legend()
+
+def estilizar_ejes(fig, ax):
+    fig.patch.set_facecolor(COLOR_PANEL)
+    ax.set_facecolor(COLOR_PANEL)
+    ax.tick_params(colors=COLOR_TEXTO_SUAVE, labelsize=9)
+    ax.xaxis.label.set_color(COLOR_TEXTO_SUAVE)
+    ax.yaxis.label.set_color(COLOR_TEXTO_SUAVE)
+    ax.title.set_color(COLOR_TEXTO)
+    for spine in ax.spines.values():
+        spine.set_color(COLOR_BORDE)
+    ax.grid(axis="x", color=COLOR_BORDE, linewidth=0.6, alpha=0.7)
+    return fig, ax
 
 
-st.pyplot(plt.gcf(), clear_figure=True)
-
-plt.figure(figsize=(14, 9))
-
-plt.imshow(
-    pesos,
-    aspect="auto"
-)
-
-plt.colorbar(label="Loading")
-
-plt.xticks(
-    range(len(pesos.columns)),
-    pesos.columns
-)
-
-plt.yticks(
-    range(len(pesos.index)),
-    pesos.index
-)
-
-plt.xlabel("Componentes principales")
-plt.ylabel("Variables")
-plt.title("Importancia de las variables en cada componente")
-
-plt.tight_layout()
-
-st.pyplot(plt.gcf(), clear_figure=True)
-
-st.header("4. Unificación con ELO y valor contractual")
-st.markdown("Esta sección conserva el flujo original para incorporar la valoración ELO y la información contractual de Transfermarkt.")
-
-#clubelo = sd.ClubElo()
+lista_jugadores = sorted(df_num.index.tolist())
 
 
-st.markdown("Definimos 1 de junio de 2026 como el final de la temporada 25/26.")
+def ficha_estatica(nombre_jugador):
 
-#current_elo = clubelo.read_by_date('2026-06-01')
+    filas = df_sin_porteros[df_sin_porteros["player"] == nombre_jugador]
+    if filas.empty:
+        fila = None
+    else:
+        fila = filas.iloc[0]
 
-#tm = sfc.Transfermarkt()
+    def valor(col):
+        if fila is None:
+            return 0
+        return fila[col] if col in fila.index and pd.notna(fila[col]) else 0
 
-#import ScraperFC.transfermarkt as transfermarkt
-import builtins
-import re
+    return {
+        "Jugador": nombre_jugador,
+        "Posición": valor("pos"),
+        "Equipo": valor("team"),
+        "Edad": valor("age"),
+        "Nación": valor("nation"),
+        "Cluster": int(clusters_kmeans.loc[nombre_jugador]) if nombre_jugador in clusters_kmeans.index else "-",
+        "Goles/90": valor("Per 90 Minutes_Gls"),
+        "Asistencias/90": valor("Per 90 Minutes_Ast"),
+        "Valor de mercado": 0,
+        "Contrato válido hasta": 0,
+        "Cláusula de rescisión": 0,
+    }
 
-float_original = builtins.float
 
+tab_buscador, tab_comparador = st.tabs(["Buscador por similitud", "Comparador de jugadores"])
 
-def float_patched(value):
-    if isinstance(value, str) and "ft" in value and "in" in value:
-        match = re.search(
-            r"(\d+)\s*ft\s*(\d+)?\s*in",
-            value
+with tab_buscador:
+    st.subheader("1. Elige un jugador de referencia")
+
+    indice_defecto = (
+        lista_jugadores.index("Lamine Yamal")
+        if "Lamine Yamal" in lista_jugadores
+        else 0
+    )
+
+    jugador_seleccionado = st.selectbox(
+        "Jugador",
+        lista_jugadores,
+        index=indice_defecto,
+        key="selector_similitud",
+    )
+
+    n_similares = st.slider("Número de jugadores similares a mostrar", 5, 20, 10)
+
+    if jugador_seleccionado:
+        vector_jugador = df_pca.loc[jugador_seleccionado].values.reshape(1, -1)
+        similitud_coseno = cosine_similarity(vector_jugador, df_pca)
+
+        similitud = pd.Series(similitud_coseno[0], index=df_num.index)
+        similitud = similitud.sort_values(ascending=False)
+        similitud = similitud[similitud.index != jugador_seleccionado]
+
+        top_similares = similitud.head(n_similares)
+
+        st.subheader(f"2. Jugadores más similares a {jugador_seleccionado}")
+
+        fig_barras, ax_barras = plt.subplots(figsize=(9, 0.45 * len(top_similares) + 1))
+        orden = top_similares.sort_values(ascending=True)
+        colores = CMAP_ACENTO(np.linspace(0.35, 0.95, len(orden)))
+        ax_barras.barh(orden.index, orden.values, color=colores)
+        ax_barras.set_xlabel("Similitud coseno")
+        ax_barras.set_xlim(0, 1)
+        ax_barras.set_title(f"Jugadores más parecidos a {jugador_seleccionado}")
+        for i, v in enumerate(orden.values):
+            ax_barras.text(v + 0.005, i, f"{v:.3f}", va="center", fontsize=9, color=COLOR_TEXTO)
+        estilizar_ejes(fig_barras, ax_barras)
+        fig_barras.tight_layout()
+        st.pyplot(fig_barras, clear_figure=True)
+
+        st.subheader("3. Ficha comparativa de los jugadores similares")
+
+        filas_tabla = []
+        for jugador in top_similares.index:
+            fila = ficha_estatica(jugador)
+            fila["Similitud"] = round(float(top_similares[jugador]), 4)
+            filas_tabla.append(fila)
+
+        tabla_similares = pd.DataFrame(filas_tabla)
+        columnas_orden = [
+            "Jugador", "Similitud", "Posición", "Equipo", "Edad", "Nación", "Cluster",
+            "Goles/90", "Asistencias/90", "Valor de mercado",
+            "Contrato válido hasta", "Cláusula de rescisión",
+        ]
+        tabla_similares = tabla_similares[columnas_orden]
+
+        st.dataframe(
+            tabla_similares,
+            use_container_width=True,
+            hide_index=True,
         )
 
-        if match:
-            pies = float_original(match.group(1))
-            pulgadas = float_original(match.group(2) or 0)
 
-            return pies * 0.3048 + pulgadas * 0.0254
+with tab_comparador:
+    st.subheader("1. Elige dos jugadores a comparar")
 
-    return float_original(value)
-
-
-builtins.float = float_patched
-
-# valor_jugadores = tm.scrape_players(
-#     "25/26",
-#     "England Premier League"
-# )
-
-# print(valor_jugadores.head())
-
-# st.dataframe(valor_jugadores.head(), use_container_width=True)
-builtins.float = float_original
-
-
-st.header("5. Similitud entre jugadores mediante PCA")
-st.write("A partir de los componentes PCA se reconstruye la matriz de puntuaciones por jugador. Después se calcula la similitud coseno tomando como referencia a Kevin De Bruyne, exactamente como en el Jupyter.")
-
-df_pca = pca.fit_transform(df_scaled)
-df_pca = pd.DataFrame(
-    df_pca, 
-    index =  df_num.index,
-    columns=[f"PC{i+1}" for i in range(df_pca.shape[1])]
-)
-
-#df_sin_porteros = df_sin_porteros.reset_index(drop=True)
-#df_pca = df_pca.reset_index(drop=True)
-
-
-saka = df_pca.loc["Kevin De Bruyne"].values.reshape(1,-1)
-
-saka_cosine=cosine_similarity(saka,df_pca)
-
-print(saka_cosine.shape)
-
-print("Shape de Saka:", saka.shape)
-print("Shape del PCA:", df_pca.shape)
-
-similitud = pd.Series(
-    saka_cosine[0],
-    index=df_num.index
-)
-
-similitud = similitud.sort_values(ascending=False)
-
-similitud = similitud[similitud.index != "Kevin De Bruyne"]
-
-top_5 = similitud.head(10)
-
-print(top_5)
-
-st.subheader("Jugadores más similares según similitud coseno")
-
-tabla_similares = pd.DataFrame({
-    "Jugador": top_5.index,
-    "Similitud": top_5.values
-})
-
-tabla_similares
-st.dataframe(tabla_similares, use_container_width=True)
-
-jugadores = ["Kevin De Bruyne"] + top_5.index.tolist()
-componentes = df_pca.columns.tolist()
-
-
-datos = df_pca.loc[jugadores, componentes]
-print(datos)
-
-st.subheader("Perfil PCA de los jugadores comparados")
-
-fig, ax = plt.subplots(figsize=(12, 8))
-
-y = np.arange(len(componentes))
-
-for jugador in jugadores:
-    ax.scatter(
-        datos.loc[jugador, componentes],
-        y,
-        s=80,
-        label=jugador
-    )
-
-ax.axvline(0, linewidth=1, linestyle="--")
-
-
-ax.set_yticks(y)
-ax.set_yticklabels(componentes)
-
-ax.set_xlabel("Valor del componente PCA")
-ax.set_ylabel("Componentes")
-ax.set_title(
-    "Perfil PCA: Bukayo Saka vs jugadores similares",
-    fontsize=16
-)
-
-ax.legend(
-    bbox_to_anchor=(1.02, 1),
-    loc="upper left"
-)
-
-plt.tight_layout()
-
-st.pyplot(plt.gcf(), clear_figure=True)
-
-limite = np.abs(datos.values).max()
-
-fig, ax = plt.subplots(figsize=(14, 6))
-
-im = ax.imshow(
-    datos.values,
-    aspect="auto",
-    cmap="RdBu_r",
-    vmin=-limite,
-    vmax=limite
-)
-
-ax.set_yticks(range(len(jugadores)))
-ax.set_yticklabels(jugadores)
-
-ax.set_xticks(range(len(componentes)))
-ax.set_xticklabels(componentes)
-
-for i in range(len(jugadores)):
-    for j in range(len(componentes)):
-        valor = datos.iloc[i, j]
-
-        ax.text(
-            j,
-            i,
-            f"{valor:.2f}",
-            ha="center",
-            va="center"
+    col_a, col_b = st.columns(2)
+    with col_a:
+        jugador_a = st.selectbox(
+            "Jugador A",
+            lista_jugadores,
+            index=0,
+            key="selector_comparador_a",
+        )
+    with col_b:
+        indice_b = 1 if len(lista_jugadores) > 1 else 0
+        jugador_b = st.selectbox(
+            "Jugador B",
+            lista_jugadores,
+            index=indice_b,
+            key="selector_comparador_b",
         )
 
-ax.set_xlabel("Componentes PCA")
-ax.set_ylabel("Jugador")
+    if jugador_a == jugador_b:
+        st.info("Selecciona dos jugadores distintos para comparar.")
+    else:
+        ficha_a = ficha_estatica(jugador_a)
+        ficha_b = ficha_estatica(jugador_b)
 
-ax.set_title(
-    "Perfil PCA: Bukayo Saka vs jugadores similares",
-    fontsize=16
-)
+        st.subheader("2. Ficha de cada jugador")
+        col_ficha_a, col_ficha_b = st.columns(2)
+        for col, ficha, clase in ((col_ficha_a, ficha_a, "ficha-a"), (col_ficha_b, ficha_b, "ficha-b")):
+            with col:
+                st.markdown(
+                    f"""
+                    <div class="ficha-jugador {clase}">
+                    <h4>{ficha['Jugador']}</h4>
+                    <p>{ficha['Posición']} · {ficha['Equipo']}</p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
-plt.colorbar(im, ax=ax, label="Valor PCA")
+        st.subheader("3. Comparativa de atributos")
+        atributos = ["Edad", "Nación", "Equipo", "Posición", "Cluster", "Valor de mercado", "Contrato válido hasta", "Cláusula de rescisión"]
+        tabla_atributos = pd.DataFrame(
+            {
+                "Atributo": atributos,
+                jugador_a: [ficha_a[a] for a in atributos],
+                jugador_b: [ficha_b[a] for a in atributos],
+            }
+        )
+        st.dataframe(tabla_atributos, use_container_width=True, hide_index=True)
 
-plt.tight_layout()
+        st.subheader("4. Comparativa de componentes principales (PCA)")
 
-st.pyplot(plt.gcf(), clear_figure=True)
+        pcs_a = df_pca.loc[jugador_a, componentes]
+        pcs_b = df_pca.loc[jugador_b, componentes]
 
-st.markdown("Como en el análisis original, se utiliza MinMaxScaler únicamente para transformar las componentes a un rango positivo para poder representarlas en el radar.")
+       # col_hist, col_scatter = st.columns(2)
 
-scaler_radar = MinMaxScaler()
+        #with col_hist:
+        st.markdown("**Histograma comparador de PCs**")
+        fig_hist, ax_hist = plt.subplots(figsize=(7, 6))
+        posiciones = np.arange(len(componentes))
+        ancho = 0.38
+        ax_hist.barh(posiciones - ancho / 2, pcs_a.values, ancho, label=jugador_a, color=COLOR_ACENTO)
+        ax_hist.barh(posiciones + ancho / 2, pcs_b.values, ancho, label=jugador_b, color=COLOR_ACENTO_B)
+        ax_hist.axvline(0, color=COLOR_BORDE, linewidth=1, linestyle="--")
+        ax_hist.set_yticks(posiciones)
+        ax_hist.set_yticklabels(["Producción ofensiva", "Participación defensiva", "Impacto en el rendimiento colectivo", "Volumen de disparo", "Eficiencia de Finaliación", "Creación de Juego / Asistencias", "Disciplina / Faltas", "Creación ofensiva", "Centros", "Impacto colectivo"])
+        ax_hist.set_xlabel("Valor del componente PCA")
+        leyenda = ax_hist.legend(facecolor=COLOR_PANEL, edgecolor=COLOR_BORDE)
+        plt.setp(leyenda.get_texts(), color=COLOR_TEXTO)
+        estilizar_ejes(fig_hist, ax_hist)
+        fig_hist.tight_layout()
+        st.pyplot(fig_hist, clear_figure=True)
 
-df_pca_minmax = pd.DataFrame(
-    scaler_radar.fit_transform(datos),
-    index = datos.index,
-    columns=datos.columns
-)
+        #with col_scatter:
+        st.markdown("**Scatterplot 3D (PC1, PC2 vs PC3) de los jugadores seleccionados**")
 
+        df_scatter = df_pca.loc[[jugador_a, jugador_b], ["PC1", "PC2", "PC3"]].copy()
+        df_scatter["Jugador"] = df_scatter.index
 
-
-st.subheader("Radar de perfiles")
-
-N = len(componentes)
-
-angulos = np.linspace(
-    0,
-    2 * np.pi,
-    N,
-    endpoint=False
-).tolist()
-
-angulos += angulos[:1]
-
-fig, ax = plt.subplots(
-    figsize=(10, 10),
-    subplot_kw=dict(polar=True)
-)
-
-for jugador in jugadores:
-
-    valores = df_pca_minmax.loc[
-        jugador,
-        componentes
-    ].tolist()
-
-    valores += valores[:1]
-
-    ax.plot(
-        angulos,
-        valores,
-        linewidth=2,
-        label=jugador
-    )
-
-    ax.fill(
-        angulos,
-        valores,
-        alpha=0.08
-    )
-
-ax.set_xticks(angulos[:-1])
-#ax.set_xticklabels(etiquetas)
-
-ax.set_ylim(0, 1)
-
-ax.set_title(
-    "Perfil PCA: Bukayo Saka vs jugadores similares",
-    fontsize=16,
-    pad=25
-)
-
-ax.legend(
-    loc="upper right",
-    bbox_to_anchor=(1.35, 1.10)
-)
-
-
-st.pyplot(plt.gcf(), clear_figure=True)
-
-st.header("6. Comparación: similitud coseno vs distancia euclídea")
-st.markdown("El MinMaxScaler de la sección anterior es solo para la representación del radar; no interviene en las medidas de similitud. Aquí se comparan los rankings sobre las mismas componentes PCA sin ese reescalado.")
-
-from sklearn.metrics.pairwise import euclidean_distances
-
-saka_euclidean = euclidean_distances(saka, df_pca)
-
-print(saka_euclidean.shape)
-
-distancia = pd.Series(
-    saka_euclidean[0],
-    index=df_num.index
-)
-
-distancia = distancia.sort_values(ascending=True)  # menor distancia = más parecido
-distancia = distancia[distancia.index != "Kevin De Bruyne"]
-
-N_SIMILARES = len(top_5)  
-
-top_euclidean = distancia.head(N_SIMILARES)
-print(top_euclidean)
-
-tabla_comparacion = pd.DataFrame({
-    "Jugador (Coseno)": top_5.index,
-    "Similitud (Coseno)": top_5.values,
-    "Jugador (Euclídea)": top_euclidean.index,
-    "Distancia (Euclídea)": top_euclidean.values,
-})
-
-tabla_comparacion
-
-st.subheader("Comparación de rankings")
-st.dataframe(tabla_comparacion, use_container_width=True)
-
-coincidencias = set(top_5.index) & set(top_euclidean.index)
-print(f"Jugadores que coinciden en ambos métodos: {coincidencias if coincidencias else 'ninguno'}")
-
-st.success(f"Coincidencias entre ambos métodos: {coincidencias if coincidencias else 'ninguna'}")
-
-st.caption("Aplicación Streamlit generada a partir de EDA_01.ipynb. La lógica analítica original se conserva; Streamlit se utiliza como capa de presentación.")
+        fig_scatter = px.scatter_3d(
+            df_scatter,
+            x="PC1",
+            y="PC2",
+            z="PC3",
+            color="Jugador",
+            color_discrete_map={jugador_a: COLOR_ACENTO, jugador_b: COLOR_ACENTO_B},
+            hover_name=df_scatter.index,
+        )
+        fig_scatter.update_layout(
+            template="plotly_dark",
+            paper_bgcolor=COLOR_PANEL,
+            plot_bgcolor=COLOR_PANEL,
+            scene=dict(
+                xaxis=dict(backgroundcolor=COLOR_PANEL, gridcolor=COLOR_BORDE),
+                yaxis=dict(backgroundcolor=COLOR_PANEL, gridcolor=COLOR_BORDE),
+                zaxis=dict(backgroundcolor=COLOR_PANEL, gridcolor=COLOR_BORDE),
+            ),
+            legend=dict(font=dict(color=COLOR_TEXTO)),
+            margin=dict(l=0, r=0, t=10, b=0),
+        )
+        st.plotly_chart(fig_scatter, use_container_width=True)
