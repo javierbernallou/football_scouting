@@ -15,21 +15,6 @@ import plotly.express as px
 
 @st.cache_data(show_spinner="Cargando y procesando datos de FBref...")
 def cargar_y_procesar_datos():
-    import os
-    import pandas as pd
-    import numpy as np
-    import seaborn as sns
-    #import LanusStats  as ls
-    import soccerdata as sd
-    import ScraperFC as sfc
-    from sklearn.decomposition import PCA
-    from sklearn.preprocessing import StandardScaler, MinMaxScaler
-    import numpy as np
-    import matplotlib.pyplot as plt
-    from sklearn.cluster import KMeans
-    from sklearn.metrics.pairwise import cosine_similarity
-
-
     #ligas = ["ENG-Premier League", ]
     fbref = sd.FBref('Big 5 European Leagues Combined', '2026')
 
@@ -289,13 +274,12 @@ st.set_page_config(
     page_title="Radar de Jugadores — Similitud & Comparador",
     layout="wide",
 )
-
-# ---- Estilos ----
+ 
 st.markdown(
     """
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap');
-
+ 
     :root {
         --bg: #0a100d;
         --panel: #121a16;
@@ -306,7 +290,7 @@ st.markdown(
         --accent: #d9a441;
         --accent-b: #6f93b3;
     }
-
+ 
     .stApp {
         background-color: var(--bg);
         color: var(--text);
@@ -320,7 +304,7 @@ st.markdown(
         letter-spacing: 0.01em;
         color: var(--text);
     }
-
+ 
     /* Cabecera */
     .hero {
         padding: 2.2rem 2.4rem;
@@ -349,7 +333,7 @@ st.markdown(
         line-height: 1.6;
         margin: 0;
     }
-
+ 
     /* Subtítulos de sección */
     h3 {
         border-left: 3px solid var(--accent);
@@ -357,27 +341,49 @@ st.markdown(
         margin-top: 2rem !important;
         font-size: 1.25rem !important;
     }
-
-    /* Fichas de jugador */
-    .ficha-jugador {
-        padding: 1.1rem 1.3rem;
+ 
+    /* Perfil de jugador (tarjeta de estadísticas) */
+    .perfil-jugador {
+        padding: 1.4rem 1.6rem;
         border-radius: 4px;
         background-color: var(--panel);
         border: 1px solid var(--border);
-        text-align: left;
+        height: 100%;
     }
-    .ficha-jugador.ficha-a { border-top: 3px solid var(--accent); }
-    .ficha-jugador.ficha-b { border-top: 3px solid var(--accent-b); }
-    .ficha-jugador h4 {
-        margin: 0 0 0.3rem 0;
-        font-size: 1.2rem;
+    .perfil-jugador.ficha-a { border-top: 3px solid var(--accent); }
+    .perfil-jugador.ficha-b { border-top: 3px solid var(--accent-b); }
+    .perfil-nombre {
+        margin: 0 0 1.2rem 0;
+        font-size: 1.6rem;
     }
-    .ficha-jugador p {
+    .grupo-atributos { margin-bottom: 1.2rem; }
+    .grupo-atributos:last-child { margin-bottom: 0; }
+    .grupo-titulo {
         color: var(--text-muted);
-        margin: 0;
-        font-size: 0.95rem;
+        font-size: 0.85rem;
+        margin-bottom: 0.7rem;
+        padding-bottom: 0.4rem;
+        border-bottom: 1px solid var(--border);
     }
-
+    .grid-tiles {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+        row-gap: 1rem;
+        column-gap: 0.8rem;
+    }
+    .tile-label {
+        color: var(--text-muted);
+        font-size: 0.78rem;
+        margin-bottom: 0.25rem;
+    }
+    .tile-valor {
+        font-family: 'Oswald', sans-serif;
+        font-size: 1.55rem;
+        font-weight: 600;
+        color: var(--text);
+        line-height: 1.1;
+    }
+ 
     /* Tablas y métricas */
     div[data-testid="stDataFrame"], div[data-testid="stMetric"] {
         border: 1px solid var(--border);
@@ -387,7 +393,7 @@ st.markdown(
         background-color: var(--panel);
         padding: 0.6rem 0.8rem;
     }
-
+ 
     /* Pestañas */
     button[data-baseweb="tab"] {
         font-family: 'Oswald', sans-serif;
@@ -396,7 +402,7 @@ st.markdown(
     div[data-baseweb="tab-highlight"] {
         background-color: var(--accent) !important;
     }
-
+ 
     /* Cromado por defecto de Streamlit */
     #MainMenu, footer {visibility: hidden;}
     </style>
