@@ -6,6 +6,8 @@ import matplotlib.colors as mcolors
 import seaborn as sns
 import soccerdata as sd
 import sys
+import os
+
 writable_dir = "/tmp/botasaurus_requests"
 os.makedirs(writable_dir, exist_ok=True)
 
@@ -20,7 +22,6 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.cluster import KMeans
 from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
-import os
 import plotly.express as px
 
 @st.cache_data(show_spinner="Cargando y procesando datos de FBref...")
