@@ -5,6 +5,16 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import seaborn as sns
 import soccerdata as sd
+import sys
+writable_dir = "/tmp/botasaurus_requests"
+os.makedirs(writable_dir, exist_ok=True)
+
+# 2. Engañar al sistema para que crea que 'botasaurus_requests' está ubicado en /tmp
+# Esto redirige las descargas automáticas del binario CFFI a una ruta con permisos.
+import types
+mock_mod = types.ModuleType("botasaurus_requests.cffi")
+mock_mod.__file__ = os.path.join(writable_dir, "cffi.py")
+sys.modules["botasaurus_requests.cffi"] = mock_mod
 import ScraperFC as sfc
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
